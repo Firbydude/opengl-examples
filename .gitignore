@@ -4,6 +4,8 @@ CMakeFiles
 Makefile
 cmake_install.cmake
 
+/bin/*
+
 log.txt
 # log files created by ivs-test:
 ivs-test-left.txt
