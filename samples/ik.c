@@ -38,7 +38,7 @@ static float placeToPutModel[3] = { 0, 0, 0 };
 
 static float angles[] = {
 	10, 15, 20,  // arm 1
-    0, 270, 30   // arm 2
+    0, 270, 30,  // arm 2
 };
 static int anglesCount = 6;
 static float target[4] = { 0, 4, 0, 1};
