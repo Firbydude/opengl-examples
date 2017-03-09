@@ -38,10 +38,42 @@ static float placeToPutModel[3] = { 0, 0, 0 };
 
 static float angles[] = {
 	10, 15, 20,  // arm 1
-    20, 25, 30,  // arm 2
+    0, 270, 30,  // arm 2
 };
 static int anglesCount = 6;
 static float target[4] = { 0, 4, 0, 1};
+
+/***** Joint constraint stuff. *****/
+
+#define UNCONSTRAINED 500
+static float constraints[] = {
+	// Arm 1
+	UNCONSTRAINED,	UNCONSTRAINED, // X axis
+	UNCONSTRAINED,	UNCONSTRAINED, // Y axis
+	UNCONSTRAINED,	UNCONSTRAINED, // Z axis
+
+	// Arm 2
+	0,				0,		// X axis
+	180,			360,	// Y axis
+	0,				135		// Z axis
+};
+
+int is_constrained(int angle)
+{
+	return constraints[angle * 2] != UNCONSTRAINED;
+}
+
+float cmin(int angle)
+{
+	return constraints[angle * 2];
+}
+
+float cmax(int angle )
+{
+	return constraints[angle * 2 + 1];
+}
+
+/*******************************************/
 
 /* Called by GLFW whenever a key is pressed. */
 void keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -173,16 +205,26 @@ float* get_jacobian(float delta)
 
 	for(int i=0; i<anglesCount; i++)
 	{
-		angles[i] += delta;
-		float newLoc[4];
-		end_effector_loc(newLoc, angles);
-		float deltaLoc[3];
-		vec3f_sub_new(deltaLoc, newLoc, origLoc);
-		for(int j=0; j<3; j++)
-			jacobian[i*3+j] = deltaLoc[j];
-		angles[i] -= delta;
+		// Prevent movement on angles with no allowed movement.
+		// This might not actually do what we want. Once we get test cases
+		// set up we'll verify. It seems to reduce iterations at a glance.
+		if (is_constrained(i) && cmin(i) == cmax(i))
+		{
+			for (int j = 0; j < 3; j++)
+				jacobian[i * 3 + j] = 0;
+		}
+		else
+		{
+			angles[i] += delta;
+			float newLoc[4];
+			end_effector_loc(newLoc, angles);
+			float deltaLoc[3];
+			vec3f_sub_new(deltaLoc, newLoc, origLoc);
+			for(int j=0; j<3; j++)
+				jacobian[i*3+j] = deltaLoc[j];
+			angles[i] -= delta;
+		}
 	}
-
 
 	printf("jacobian:\n");
 	for(int i=0; i<anglesCount; i++)
@@ -213,7 +255,8 @@ void effector_target(float target[4])
 		timesThroughLoop++;
 		if(distance < .001 || timesThroughLoop >= 1000)
 		{
-			printf("Times through loop: %d\n", timesThroughLoop);
+			if (timesThroughLoop > 1)
+				printf("Times through loop: %d\n", timesThroughLoop);
 			break;
 		}
 
@@ -285,6 +328,24 @@ void effector_target(float target[4])
 		for(int i=0; i<anglesCount; i++)
 		{
 			angles[i] += alpha*changeInAngle[i];
+
+			// Clamp constrained angles
+			if (is_constrained(i))
+			{
+				if (angles[i] < cmin(i))
+				{
+					printf("Clamping angle %d (%.2f) to min (%.2f)\n", 
+						   i, angles[i], cmin(i));
+					angles[i] = cmin(i);
+				}
+				else if (angles[i] > cmax(i))
+				{
+					printf("Clamping angle %d (%.2f) to max (%.2f)\n", 
+						   i, angles[i], cmax(i));
+					angles[i] = cmax(i);
+				}
+			}
+
 			angles[i] = fmod(angles[i], 360); // Keep angles within 0 to 360
 			printf("%f ", changeInAngle[i]);
 		}
