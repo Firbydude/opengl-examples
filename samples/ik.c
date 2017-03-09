@@ -36,8 +36,9 @@ static float placeToPutModel[3] = { 0, 0, 0 };
 #define GLSL_VERT_FILE "assimp.vert"
 #define GLSL_FRAG_FILE "assimp.frag"
 
-static float angles[] = { 10, 15, 20,  // arm 1
-                   20, 25, 30,  // arm 2
+static float angles[] = {
+	10, 15, 20,  // arm 1
+    20, 25, 30,  // arm 2
 };
 static int anglesCount = 6;
 static float target[4] = { 0, 4, 0, 1};
@@ -47,7 +48,7 @@ void keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 	if(action != GLFW_PRESS && action != GLFW_REPEAT)
 		return;
-	
+
 	switch(key)
 	{
 		case GLFW_KEY_Q:
@@ -97,7 +98,7 @@ void get_model_matrix(float result[16])
 		mat4f_mult_mat4f_new(result, translate, scale);
 		return;
 	}
-	
+
 	/* Get a matrix to scale+translate the model based on the bounding
 	 * box. If the last parameter is 1, the bounding box will sit on
 	 * the XZ plane. If it is set to 0, the bounding box will be
@@ -169,7 +170,7 @@ float* get_jacobian(float delta)
 
 	float origLoc[4];
 	end_effector_loc(origLoc, angles);
-	
+
 	for(int i=0; i<anglesCount; i++)
 	{
 		angles[i] += delta;
@@ -198,11 +199,11 @@ float* get_jacobian(float delta)
 void effector_target(float target[4])
 {
 	int timesThroughLoop = 0;
-	
+
 	while(1)
 	{
 		/* Get current location of end effector */
-		float currentLoc[4]; 
+		float currentLoc[4];
 		end_effector_loc(currentLoc, angles);
 		/* Get a vector pointing to target from current end effector location */
 		float deltaTarget[3];
@@ -295,7 +296,7 @@ void effector_target(float target[4])
 		vec3f_sub_new(actualChange, newLoc, currentLoc);
 		printf("Actual change in end effector\n");
 		vec3f_print(actualChange);
-		
+
 		free(changeInAngle);
 		free(jacobian);
 
@@ -313,7 +314,7 @@ void display()
 	 * process. */
 	dgr_setget("style", &renderStyle, sizeof(int));
 
-	
+
 	/* Render the scene once for each viewport. Frequently one
 	 * viewport will fill the entire screen. However, this loop will
 	 * run twice for HMDs (once for the left eye and once for the
@@ -356,7 +357,7 @@ void display()
 		glUseProgram(program);
 
 		glUniform1i(kuhl_get_uniform("renderStyle"), renderStyle);
-		
+
 		kuhl_errorcheck();
 		/* Send the perspective projection matrix to the vertex program. */
 		glUniformMatrix4fv(kuhl_get_uniform("Projection"),
@@ -371,10 +372,10 @@ void display()
 
 
 		effector_target(target);
-		
+
 		float arm1Mat[16],arm2Mat[16];
 		get_arm_matrices(arm1Mat, arm2Mat, angles);
-		
+
 		float modelview[16];
 		mat4f_mult_mat4f_new(modelview, viewMat, arm1Mat);
 		glUniformMatrix4fv(kuhl_get_uniform("ModelView"),
@@ -397,7 +398,7 @@ void display()
 		float ealoc[4];
 		end_effector_loc(ealoc, arm2Mat);
 
-		
+
 		glUseProgram(0); // stop using a GLSL program.
 
 		static int counter = 0;
