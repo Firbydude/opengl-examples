@@ -43,6 +43,10 @@ static float angles[] = {
 static int anglesCount = 6;
 static float target[4] = { 0, 4, 0, 1};
 
+#define USE_VRPN 1
+#define VRPN_HOST "localhost"
+#define TRACKING_HAND "HandR"
+
 /***** Joint constraint stuff. *****/
 
 #define UNCONSTRAINED 500
@@ -430,7 +434,14 @@ void display()
 //		get_model_matrix(modelMat);
 //		mat4f_stack_mult(stack, modelMat);
 
-
+		// Get the effector location from vrpn
+		if (USE_VRPN)
+		{
+			float orient[16];
+			vrpn_get(TRACKING_HAND, VRPN_HOST, target, orient);
+			printf("Tracking position for %s: (%.2f, %.2f, %.2f)\n",
+				   TRACKING_HAND, target[0], target[1], target[2]);
+		}
 
 		effector_target(target);
 

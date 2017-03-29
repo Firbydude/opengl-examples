@@ -323,6 +323,7 @@ int main(int argc, char* argv[])
 	
 	if(verbose)printf("Opening VRPN connection\n");
 	vrpn_Connection_IP* m_Connection = new vrpn_Connection_IP();
+	if(verbose) printf("VRPN connection opened\n");
 	
 	//Set the tracker type to file if files were specified, otherwise set it to data type.
 	bool trackerst = filesc > 0 ? FILE_TRACKER : DATA_TRACKER;
@@ -343,7 +344,9 @@ int main(int argc, char* argv[])
 	{
 		if(trackerst == DATA_TRACKER)
 		{
+			printf("A\n");
 			trackersv[i] = new myTracker(objNamesv[i], flags, m_Connection);
+			printf("B\n");
 		}
 		else
 		{
