@@ -5,6 +5,8 @@
 
 /** @file Demonstrates inverse kinematics using a Jacobian transpose approach.
  *
+ * cmake -DCMAKE_LIBRARY_PATH="../vrpn;../vrpn/quat" .
+ *
  * @author Scott Kuhl
  */
 
@@ -43,9 +45,18 @@ static float angles[] = {
 static int anglesCount = 6;
 static float target[4] = { 0, 4, 0, 1};
 
-#define USE_VRPN 1
+/**
+ * Maximum number of jacobian inverse operations for each frame. Even using the
+ * naive transpose method, if its over 250 then we're likely trying to reach an
+ * impossible position.
+ */
+#define MAX_INVERSE_ITERATIONS 250
+
+/***** Tracking *****/
+
+#define USE_VRPN 0
 #define VRPN_HOST "localhost"
-#define TRACKING_HAND "HandR"
+#define TRACKING_HANDR "Hand5R"
 
 /***** Joint constraint stuff. *****/
 
@@ -257,7 +268,7 @@ void effector_target(float target[4])
 		float distance = vec3f_norm(deltaTarget);
 
 		timesThroughLoop++;
-		if(distance < .001 || timesThroughLoop >= 1000)
+		if(distance < .001 || timesThroughLoop >= MAX_INVERSE_ITERATIONS)
 		{
 			if (timesThroughLoop > 1)
 				printf("Times through loop: %d\n", timesThroughLoop);
@@ -338,13 +349,13 @@ void effector_target(float target[4])
 			{
 				if (angles[i] < cmin(i))
 				{
-					printf("Clamping angle %d (%.2f) to min (%.2f)\n", 
+					printf("Clamping angle %d (%.2f) to min (%.2f)\n",
 						   i, angles[i], cmin(i));
 					angles[i] = cmin(i);
 				}
 				else if (angles[i] > cmax(i))
 				{
-					printf("Clamping angle %d (%.2f) to max (%.2f)\n", 
+					printf("Clamping angle %d (%.2f) to max (%.2f)\n",
 						   i, angles[i], cmax(i));
 					angles[i] = cmax(i);
 				}
@@ -438,9 +449,9 @@ void display()
 		if (USE_VRPN)
 		{
 			float orient[16];
-			vrpn_get(TRACKING_HAND, VRPN_HOST, target, orient);
+			vrpn_get(TRACKING_HANDR, VRPN_HOST, target, orient);
 			printf("Tracking position for %s: (%.2f, %.2f, %.2f)\n",
-				   TRACKING_HAND, target[0], target[1], target[2]);
+				   TRACKING_HANDR, target[0], target[1], target[2]);
 		}
 
 		effector_target(target);
