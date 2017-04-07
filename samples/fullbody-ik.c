@@ -16,7 +16,10 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
+#include "inverse_kinematics.h"
+
 #include "libkuhl.h"
+
 static GLuint program = 0; /**< id value for the GLSL program */
 
 static int renderStyle = 0;
@@ -51,6 +54,8 @@ static float target[4] = { 0, 4, 0, 1};
  * impossible position.
  */
 #define MAX_INVERSE_ITERATIONS 250
+
+static struct kuhl_ik *ik;
 
 /***** Tracking *****/
 
@@ -176,10 +181,10 @@ void get_arm_matrices(float arm1[16], float arm2[16], float angles[])
 	float scale[16];
 	mat4f_scale_new(scale, .5, 4, .5);
 	float decenter[16];
-	//mat4f_translate_new(decenter, 0, .5, 0);
+	mat4f_translate_new(decenter, 0, .5, 0);
 
 	mat4f_stack_mult(stack, scale);
-	//mat4f_stack_mult(stack, decenter);
+	mat4f_stack_mult(stack, decenter);
 	mat4f_stack_peek(stack, arm1);
 	mat4f_stack_pop(stack);
 
@@ -192,7 +197,7 @@ void get_arm_matrices(float arm1[16], float arm2[16], float angles[])
 	mat4f_stack_push(stack);
 
 	mat4f_stack_mult(stack, scale);
-	//mat4f_stack_mult(stack, decenter);
+	mat4f_stack_mult(stack, decenter);
 	mat4f_stack_peek(stack, arm2);
 	mat4f_stack_pop(stack);
 
@@ -382,6 +387,103 @@ void effector_target(float target[4])
 
 }
 
+void init_model()
+{
+	struct kuhl_skeleton *sk;
+	struct kuhl_skeleton *parent;
+	float trans_mat[16];
+	float scale_mat[16];
+	//float rot_mat[16];
+
+	ik = ik_alloc();
+
+	// Head & Neck (skeleton root)
+	sk = sk_alloc("Head");
+	mat4f_scale_new(sk->scale_mat, 0.1, 0.1, 0.1);
+	mat4f_translate_new(sk->trans_mat, 0, -0.1, 0);
+	mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	ik->sk = sk;
+
+	// Left shoulder
+	// sk = sk_alloc("ShoulderL");
+	// sk->is_static = 1;
+	// mat4f_scale_new(sk->scale_mat, 0.19, 0.1, 0.1);
+	// mat4f_translate_new(sk->trans_mat, -0.2, -0.21, 0);
+	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	// sk_add_child(ik->sk, sk);
+	// parent = sk;
+
+	// // Left Arm
+	// sk = sk_alloc("ArmL");
+	// mat4f_scale_new(sk->scale_mat, 0.2, 0.1, 0.1);
+	// mat4f_translate_new(sk->trans_mat, -0.41, -0.21, 0);
+	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	// sk_add_child(parent, sk);
+	// parent = sk;
+
+	// // Left Forearm & Hand (effector)
+	// sk = sk_alloc("ForeArmL");
+	// sk->is_effector = 1;
+	// mat4f_scale_new(sk->scale_mat, 0.2, 0.1, 0.1);
+	// mat4f_translate_new(sk->trans_mat, -0.62, -0.21, 0);
+	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	// sk_add_child(parent, sk);
+	// parent = sk;
+
+	// Right shoulder
+	sk = sk_alloc("ShoulderR");
+	sk->is_static = 1;
+	mat4f_scale_new(sk->scale_mat, 0.2, 0.1, 0.1);
+	mat4f_translate_new(sk->trans_mat, 0.1, -0.1, 0);
+	mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	sk_add_child(ik->sk, sk);
+	parent = sk;
+
+	// Right Arm
+	sk = sk_alloc("ArmR");
+	sk->angles[2] = 45;
+	mat4f_scale_new(sk->scale_mat, 0.2, 0.1, 0.1);
+	mat4f_translate_new(sk->trans_mat, 0.21, 0, 0);
+	mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	sk_add_child(parent, sk);
+	parent = sk;
+
+	// Right Forearm & Hand (effector)
+	sk = sk_alloc("ForeArmR");
+	sk->is_effector = 1;
+	sk->angles[2] = 45;
+	mat4f_scale_new(sk->scale_mat, 0.2, 0.1, 0.1);
+	mat4f_translate_new(sk->trans_mat, 0.21, 0, 0);
+	mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	sk_add_child(parent, sk);
+	parent = sk;
+
+	ik_init(ik);
+
+	ik_compute_positions(ik);
+}
+
+void draw_model(float view_mat[16])
+{
+	float modelview[16];
+	struct kuhl_skeleton *sk = ik->sk;
+
+	while (sk) {
+		mat4f_mult_mat4f_new(modelview, view_mat, sk->composite_matrix);
+		// mat4f_mult_mat4f_new(modelview, modelview, sk->composite_matrix);
+		// mat4f_mult_mat4f_new(modelview, modelview, sk->scale_mat);
+		glUniformMatrix4fv(kuhl_get_uniform("ModelView"),
+		                   1, // number of 4x4 float matrices
+		                   0, // transpose
+		                   modelview); // value
+		kuhl_errorcheck();
+		kuhl_geometry_draw(modelgeom); /* Draw the model */
+		kuhl_errorcheck();
+
+		sk = sk_next(sk);
+	}
+}
+
 
 /** Draws the 3D scene. */
 void display()
@@ -454,33 +556,34 @@ void display()
 				   TRACKING_HANDR, target[0], target[1], target[2]);
 		}
 
-		effector_target(target);
+		// effector_target(target);
 
-		float arm1Mat[16],arm2Mat[16];
-		get_arm_matrices(arm1Mat, arm2Mat, angles);
+		// float arm1Mat[16],arm2Mat[16];
+		// get_arm_matrices(arm1Mat, arm2Mat, angles);
 
-		float modelview[16];
-		mat4f_mult_mat4f_new(modelview, viewMat, arm1Mat);
-		glUniformMatrix4fv(kuhl_get_uniform("ModelView"),
-		                   1, // number of 4x4 float matrices
-		                   0, // transpose
-		                   modelview); // value
-		kuhl_errorcheck();
-		kuhl_geometry_draw(modelgeom); /* Draw the model */
-		kuhl_errorcheck();
+		// float modelview[16];
+		// mat4f_mult_mat4f_new(modelview, viewMat, arm1Mat);
+		// glUniformMatrix4fv(kuhl_get_uniform("ModelView"),
+		//                    1, // number of 4x4 float matrices
+		//                    0, // transpose
+		//                    modelview); // value
+		// kuhl_errorcheck();
+		// kuhl_geometry_draw(modelgeom);
+		// kuhl_errorcheck();
 
-		mat4f_mult_mat4f_new(modelview, viewMat, arm2Mat);
-		glUniformMatrix4fv(kuhl_get_uniform("ModelView"),
-		                   1, // number of 4x4 float matrices
-		                   0, // transpose
-		                   modelview); // value
-		kuhl_errorcheck();
-		kuhl_geometry_draw(modelgeom); /* Draw the model */
-		kuhl_errorcheck();
+		// mat4f_mult_mat4f_new(modelview, viewMat, arm2Mat);
+		// glUniformMatrix4fv(kuhl_get_uniform("ModelView"),
+		//                    1, // number of 4x4 float matrices
+		//                    0, // transpose
+		//                    modelview); // value
+		// kuhl_errorcheck();
+		// kuhl_geometry_draw(modelgeom);
+		// kuhl_errorcheck();
 
-		float ealoc[4];
-		end_effector_loc(ealoc, arm2Mat);
+		// float ealoc[4];
+		// end_effector_loc(ealoc, arm2Mat);
 
+		draw_model(viewMat);
 
 		glUseProgram(0); // stop using a GLSL program.
 
@@ -542,6 +645,8 @@ int main(int argc, char** argv)
 		msg(MSG_FATAL, "Unable to load the requested model: %s", modelFilename);
 		exit(EXIT_FAILURE);
 	}
+
+	init_model();
 
 	while(!glfwWindowShouldClose(kuhl_get_window()))
 	{
