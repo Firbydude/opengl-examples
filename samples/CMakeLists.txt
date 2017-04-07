@@ -11,7 +11,7 @@ cmake_minimum_required(VERSION 2.6)
 # name that contains a main() function.
 ####################################
 # Programs that need ASSIMP
-set(NEED_ASSIMP viewer slerp explode flock frustum ik tracker-demo)
+set(NEED_ASSIMP viewer slerp explode flock frustum ik tracker-demo fullbody-ik)
 # Programs that don't rely on ASSIMP
 set(NEED_NOTHING triangle triangle-shade triangle-color texture glinfo teartest picker prerend panorama pong text ogl2-slideshow ogl2-triangle ogl2-texture tracker-stats videoplay zfight)
 
