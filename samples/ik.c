@@ -15,6 +15,7 @@
 #include <math.h>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+#include <kalman.h>
 
 #include "libkuhl.h"
 static GLuint program = 0; /**< id value for the GLSL program */
@@ -45,6 +46,13 @@ static float angles[] = {
 static int anglesCount = 6;
 static float target[4] = { 0, 4, 0, 1};
 
+/*
+ * Kalman State Struct
+ * Each data point we are filtering must have its own Kalman State struct
+ * e.g. We are filtering X, Y, and Z for our target, so we must have 3 structs
+ */
+kalman_state kStates[3];
+
 /**
  * Maximum number of jacobian inverse operations for each frame. Even using the
  * naive transpose method, if its over 250 then we're likely trying to reach an
@@ -54,7 +62,7 @@ static float target[4] = { 0, 4, 0, 1};
 
 /***** Tracking *****/
 
-#define USE_VRPN 0
+#define USE_VRPN 1
 #define VRPN_HOST "localhost"
 #define TRACKING_HANDR "Hand5R"
 
@@ -176,10 +184,10 @@ void get_arm_matrices(float arm1[16], float arm2[16], float angles[])
 	float scale[16];
 	mat4f_scale_new(scale, .5, 4, .5);
 	float decenter[16];
-	//mat4f_translate_new(decenter, 0, .5, 0);
+	mat4f_translate_new(decenter, 0, .5, 0);
 
 	mat4f_stack_mult(stack, scale);
-	//mat4f_stack_mult(stack, decenter);
+	mat4f_stack_mult(stack, decenter);
 	mat4f_stack_peek(stack, arm1);
 	mat4f_stack_pop(stack);
 
@@ -192,7 +200,7 @@ void get_arm_matrices(float arm1[16], float arm2[16], float angles[])
 	mat4f_stack_push(stack);
 
 	mat4f_stack_mult(stack, scale);
-	//mat4f_stack_mult(stack, decenter);
+	mat4f_stack_mult(stack, decenter);
 	mat4f_stack_peek(stack, arm2);
 	mat4f_stack_pop(stack);
 
@@ -256,6 +264,19 @@ float* get_jacobian(float delta)
 void effector_target(float target[4])
 {
 	int timesThroughLoop = 0;
+
+	/*
+	Kalman Estimate Function
+	Pointer to Kalman State --- float of the input to be filtered --- float timestamp of the input
+	Returns a float with the new value based on the filter
+
+	Loop iterates through each new datapoint
+	*/
+	if (USE_VRPN) {
+		for (int i = 0; i < 3; i++) {
+			target[i] = kalman_estimate(&kStates[i], target[i], -1);
+		}
+	}
 
 	while(1)
 	{
@@ -541,6 +562,18 @@ int main(int argc, char** argv)
 	{
 		msg(MSG_FATAL, "Unable to load the requested model: %s", modelFilename);
 		exit(EXIT_FAILURE);
+	}
+
+	/*
+	Kalman Initialize
+	Pointer to Kalman State --- float standard deviation of measurement noise --- float confidence scale
+	Scale approching 0 indicates high confidence, DO NOT USE 0
+	Run once on each Kalman State struct
+	*/
+	if (USE_VRPN) {
+		for (int i = 0; i < 3; i++) {
+			kalman_initialize(&kStates[i], 0.005, 0.0001);
+		}
 	}
 
 	while(!glfwWindowShouldClose(kuhl_get_window()))
