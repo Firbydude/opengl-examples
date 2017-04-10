@@ -3,6 +3,10 @@
 
 #include "list.h"
 
+#define AXIS_X 0
+#define AXIS_Y 2
+#define AXIS_Z 3
+
 /**
  * Holds some information about a kuhl_skeleton for doing inverse kinematic
  * operations. Call kuhl_ik_init when finished creating the skeleton. Updates
@@ -22,12 +26,14 @@ struct kuhl_ik {
 	// A (K*3)X(N*3) matrix J
 	float *jacobian;	  // J
 	float *delta_angles;
+	float *delta_targets; // 
 };
 
 struct kuhl_skeleton {
 	char *name;
 
-	int index;
+	int eindex;
+	int jindex;
 	int is_effector;
 	int is_static; // Static joint angles cannot be modified.
 
@@ -38,6 +44,8 @@ struct kuhl_skeleton {
 
 	float scale_mat[16];
 	float trans_mat[16];
+
+	float test_mat[16];
 
 	float transform_matrix[16];
 	float joint_matrix[16];
@@ -60,7 +68,7 @@ int sk_rem_child(struct kuhl_skeleton *sk, struct kuhl_skeleton *child);
 
 struct kuhl_skeleton *sk_next(struct kuhl_skeleton *sk);
 
-void ik_compute_jacobian(struct kuhl_ik *ik);
+void ik_compute_jacobian(struct kuhl_ik *ik, float delta);
 
 void ik_compute_positions(struct kuhl_ik *ik);
 
@@ -68,4 +76,12 @@ void ik_init(struct kuhl_ik *ik);
 
 struct kuhl_ik *ik_alloc();
 
+void ik_set_effector_target(struct kuhl_ik *ik,
+							struct kuhl_skeleton *eff,
+							float *target);
+
+int ik_jacobian_transpose(struct kuhl_ik *ik,
+						  float cutoff,
+						  int max_iterations,
+						  float delta);
 #endif

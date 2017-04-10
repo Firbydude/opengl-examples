@@ -48,6 +48,8 @@ static float angles[] = {
 static int anglesCount = 6;
 static float target[4] = { 0, 4, 0, 1};
 
+#define THICKNESS 0.04
+
 /**
  * Maximum number of jacobian inverse operations for each frame. Even using the
  * naive transpose method, if its over 250 then we're likely trying to reach an
@@ -62,6 +64,14 @@ static struct kuhl_ik *ik;
 #define USE_VRPN 0
 #define VRPN_HOST "localhost"
 #define TRACKING_HANDR "Hand5R"
+#define TRACKING_HANDL "Hand5L"
+
+struct tracking_object {
+	char *tracking_name;
+	struct kuhl_skeleton *effector;
+};
+
+struct tracking_object effectors[2];
 
 /***** Joint constraint stuff. *****/
 
@@ -393,74 +403,106 @@ void init_model()
 	struct kuhl_skeleton *parent;
 	float trans_mat[16];
 	float scale_mat[16];
+	float decenter[16];
+	int num_effectors = 0;
 	//float rot_mat[16];
 
 	ik = ik_alloc();
 
 	// Head & Neck (skeleton root)
 	sk = sk_alloc("Head");
+	sk->is_static = 1;
 	mat4f_scale_new(sk->scale_mat, 0.1, 0.1, 0.1);
-	mat4f_translate_new(sk->trans_mat, 0, -0.1, 0);
-	mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	mat4f_translate_new(sk->trans_mat, 0, -0.11, 0);
+	//mat4f_identity(sk->transform_matrix);
+	mat4f_translate_new(sk->test_mat, 0, -0.5, 0);
 	ik->sk = sk;
 
+	mat4f_translate_new(decenter, -0.5, 0, 0);
+
 	// Left shoulder
-	// sk = sk_alloc("ShoulderL");
-	// sk->is_static = 1;
-	// mat4f_scale_new(sk->scale_mat, 0.19, 0.1, 0.1);
-	// mat4f_translate_new(sk->trans_mat, -0.2, -0.21, 0);
+	sk = sk_alloc("ShoulderL");
+	sk->is_static = 1;
+	mat4f_scale_new(sk->scale_mat, 0.2, THICKNESS, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, -0.19, 0, 0);
 	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
-	// sk_add_child(ik->sk, sk);
-	// parent = sk;
+	mat4f_copy(sk->test_mat, decenter);
+	sk_add_child(ik->sk, sk);
+	parent = sk;
 
-	// // Left Arm
-	// sk = sk_alloc("ArmL");
-	// mat4f_scale_new(sk->scale_mat, 0.2, 0.1, 0.1);
-	// mat4f_translate_new(sk->trans_mat, -0.41, -0.21, 0);
+	// Left Arm
+	sk = sk_alloc("ArmL");
+	mat4f_scale_new(sk->scale_mat, 0.2, THICKNESS, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, -0.21, 0, 0);
 	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
-	// sk_add_child(parent, sk);
-	// parent = sk;
+	mat4f_copy(sk->test_mat, decenter);
+	sk_add_child(parent, sk);
+	parent = sk;
 
-	// // Left Forearm & Hand (effector)
-	// sk = sk_alloc("ForeArmL");
-	// sk->is_effector = 1;
-	// mat4f_scale_new(sk->scale_mat, 0.2, 0.1, 0.1);
-	// mat4f_translate_new(sk->trans_mat, -0.62, -0.21, 0);
-	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
-	// sk_add_child(parent, sk);
-	// parent = sk;
+	// Left Forearm & Hand (effector)
+	sk = sk_alloc("ForeArmL");
+	sk->is_effector = 1;
+	mat4f_scale_new(sk->scale_mat, 0.2, THICKNESS, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, -0.21, 0, 0);
+	//mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	mat4f_copy(sk->test_mat, decenter);
+	sk_add_child(parent, sk);
+	effectors[num_effectors].tracking_name = TRACKING_HANDL;
+	effectors[num_effectors].effector = sk;
+	num_effectors++;
+	parent = sk;
+
+	mat4f_translate_new(decenter, 0.5, 0, 0);
 
 	// Right shoulder
 	sk = sk_alloc("ShoulderR");
 	sk->is_static = 1;
-	mat4f_scale_new(sk->scale_mat, 0.2, 0.1, 0.1);
-	mat4f_translate_new(sk->trans_mat, 0.1, -0.1, 0);
-	mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	mat4f_scale_new(sk->scale_mat, 0.2, THICKNESS, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0.19, 0, 0);
+	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(ik->sk, sk);
 	parent = sk;
 
 	// Right Arm
 	sk = sk_alloc("ArmR");
-	sk->angles[2] = 45;
-	mat4f_scale_new(sk->scale_mat, 0.2, 0.1, 0.1);
+	// sk->angles[2] = 45;
+	mat4f_scale_new(sk->scale_mat, 0.2, THICKNESS, THICKNESS);
 	mat4f_translate_new(sk->trans_mat, 0.21, 0, 0);
-	mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(parent, sk);
 	parent = sk;
 
 	// Right Forearm & Hand (effector)
 	sk = sk_alloc("ForeArmR");
 	sk->is_effector = 1;
-	sk->angles[2] = 45;
-	mat4f_scale_new(sk->scale_mat, 0.2, 0.1, 0.1);
+	// sk->angles[2] = 45;
+	mat4f_scale_new(sk->scale_mat, 0.2, THICKNESS, THICKNESS);
 	mat4f_translate_new(sk->trans_mat, 0.21, 0, 0);
-	mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(parent, sk);
+	effectors[num_effectors].tracking_name = TRACKING_HANDR;
+	effectors[num_effectors].effector = sk;
+	num_effectors++;
 	parent = sk;
 
 	ik_init(ik);
 
 	ik_compute_positions(ik);
+
+	printf("Original positions:\n");
+	sk = ik->sk;
+	while (sk) {
+		printf("%s: (%.2f, %.2f, %.2f)\n", sk->name,
+			sk->position[0], sk->position[1], sk->position[2]);
+		sk = sk_next(sk);
+	}
+
+	// Position when the shoulder and elbow joints are at 45 degrees.
+	float target[] = { 0.34, 0.25, 0.00 };
+	ik_set_effector_target(ik, effectors[1].effector, target);
 }
 
 void draw_model(float view_mat[16])
@@ -469,7 +511,34 @@ void draw_model(float view_mat[16])
 	struct kuhl_skeleton *sk = ik->sk;
 
 	while (sk) {
-		mat4f_mult_mat4f_new(modelview, view_mat, sk->composite_matrix);
+		if (sk->parent) {
+			mat4f_mult_mat4f_new(modelview, view_mat, sk->parent->transform_matrix);
+		} else {
+			mat4f_copy(modelview, view_mat);
+		}
+
+		mat4f_mult_mat4f_new(modelview, modelview, sk->joint_matrix);
+
+		// Draw the end effector positions for debugging purposes.
+		if (sk->is_effector) {
+			float scale[16];
+			float trans[16];
+			mat4f_scale_new(scale, THICKNESS+0.01, THICKNESS+0.01, THICKNESS+0.01);
+			mat4f_translate_new(trans, sk->position[0], sk->position[1], sk->position[2]);
+			mat4f_mult_mat4f_new(trans, view_mat, trans);
+			mat4f_mult_mat4f_new(trans, trans, scale);
+			glUniformMatrix4fv(kuhl_get_uniform("ModelView"),
+			                   1, // number of 4x4 float matrices
+			                   0, // transpose
+			                   trans); // value
+			kuhl_errorcheck();
+			kuhl_geometry_draw(modelgeom); /* Draw the model */
+			kuhl_errorcheck();
+		}
+
+		mat4f_mult_mat4f_new(modelview, modelview, sk->scale_mat);
+		mat4f_mult_mat4f_new(modelview, modelview, sk->test_mat);
+
 		// mat4f_mult_mat4f_new(modelview, modelview, sk->composite_matrix);
 		// mat4f_mult_mat4f_new(modelview, modelview, sk->scale_mat);
 		glUniformMatrix4fv(kuhl_get_uniform("ModelView"),
@@ -582,6 +651,9 @@ void display()
 
 		// float ealoc[4];
 		// end_effector_loc(ealoc, arm2Mat);
+
+		int iterations = ik_jacobian_transpose(ik, 0.001, 250, 2);
+		printf("IK iterations: %d\n", iterations);
 
 		draw_model(viewMat);
 
