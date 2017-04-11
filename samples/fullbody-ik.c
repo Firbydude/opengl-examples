@@ -65,13 +65,17 @@ static struct kuhl_ik *ik;
 #define VRPN_HOST "localhost"
 #define TRACKING_HANDR "Hand5R"
 #define TRACKING_HANDL "Hand5L"
+#define TRACKING_FOOTL "Foot5L"
+#define TRACKING_FOOTR "Foot5R"
 
 struct tracking_object {
 	char *tracking_name;
 	struct kuhl_skeleton *effector;
 };
 
-struct tracking_object effectors[2];
+struct tracking_object effectors[4];
+
+int active_effector = 0;
 
 /***** Joint constraint stuff. *****/
 
@@ -105,6 +109,16 @@ float cmax(int angle )
 
 /*******************************************/
 
+void update_effector_target(float x, float y, float z)
+{
+	float target[3];
+	ik_get_effector_target(ik, effectors[active_effector].effector, target);
+	target[0] += x;
+	target[1] += y;
+	target[2] += z;
+	ik_set_effector_target(ik, effectors[active_effector].effector, target);
+}
+
 /* Called by GLFW whenever a key is pressed. */
 void keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
@@ -125,12 +139,12 @@ void keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
 			glutPositionWindow(0,0);
 			break;
 #endif
-		case GLFW_KEY_A: target[0]+=.05; break;
-		case GLFW_KEY_D: target[0]-=.05; break;
-		case GLFW_KEY_W: target[1]+=.05; break;
-		case GLFW_KEY_S: target[1]-=.05; break;
-		case GLFW_KEY_X: target[2]+=.05; break;
-		case GLFW_KEY_Z: target[2]-=.05; break;
+		case GLFW_KEY_A: update_effector_target(.02, 0, 0); break;
+		case GLFW_KEY_D: update_effector_target(-.02, 0, 0); break;
+		case GLFW_KEY_W: update_effector_target(0, .02, 0); break;
+		case GLFW_KEY_S: update_effector_target(0, -.02, 0); break;
+		case GLFW_KEY_X: update_effector_target(0, 0, .02); break;
+		case GLFW_KEY_Z: update_effector_target(0, 0, -.02); break;
 		case GLFW_KEY_R:
 		{
 			// Reload GLSL program from disk
@@ -140,6 +154,12 @@ void keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
 			kuhl_geometry_program(modelgeom, program, KG_FULL_LIST);
 			break;
 		}
+		case GLFW_KEY_1:
+		case GLFW_KEY_2:
+		case GLFW_KEY_3:
+		case GLFW_KEY_4:
+			active_effector = key - GLFW_KEY_1;
+			break;
 	}
 }
 
@@ -401,15 +421,13 @@ void init_model()
 {
 	struct kuhl_skeleton *sk;
 	struct kuhl_skeleton *parent;
-	float trans_mat[16];
-	float scale_mat[16];
+	struct kuhl_skeleton *attach;
 	float decenter[16];
 	int num_effectors = 0;
-	//float rot_mat[16];
 
 	ik = ik_alloc();
 
-	// Head & Neck (skeleton root)
+	// Head (skeleton root)
 	sk = sk_alloc("Head");
 	sk->is_static = 1;
 	mat4f_scale_new(sk->scale_mat, 0.1, 0.1, 0.1);
@@ -417,6 +435,14 @@ void init_model()
 	//mat4f_identity(sk->transform_matrix);
 	mat4f_translate_new(sk->test_mat, 0, -0.5, 0);
 	ik->sk = sk;
+
+	// Invisible neck
+	sk = attach = sk_alloc("Neck");
+	mat4f_scale_new(sk->scale_mat, 0, 0, 0);
+	mat4f_translate_new(sk->trans_mat, 0, -0.01, 0);
+	mat4f_translate_new(sk->test_mat, 0, -0.5, 0);
+	sk_add_child(ik->sk, sk);
+	parent = sk;
 
 	mat4f_translate_new(decenter, -0.5, 0, 0);
 
@@ -427,7 +453,7 @@ void init_model()
 	mat4f_translate_new(sk->trans_mat, -0.19, 0, 0);
 	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
 	mat4f_copy(sk->test_mat, decenter);
-	sk_add_child(ik->sk, sk);
+	sk_add_child(attach, sk);
 	parent = sk;
 
 	// Left Arm
@@ -461,7 +487,7 @@ void init_model()
 	mat4f_translate_new(sk->trans_mat, 0.19, 0, 0);
 	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
 	mat4f_copy(sk->test_mat, decenter);
-	sk_add_child(ik->sk, sk);
+	sk_add_child(attach, sk);
 	parent = sk;
 
 	// Right Arm
@@ -488,9 +514,67 @@ void init_model()
 	num_effectors++;
 	parent = sk;
 
+	mat4f_translate_new(decenter, 0, -0.5, 0);
+
+	// Torso
+	sk = sk_alloc("Torso");
+	sk->is_static = 1;
+	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.4, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0, -0.41, 0);
+	mat4f_copy(sk->test_mat, decenter);
+	sk_add_child(attach, sk);
+	attach = sk;
+	parent = sk;
+
+	// Left Leg
+	sk = sk_alloc("LegL");
+	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.2, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0, -0.21, 0);
+	mat4f_copy(sk->test_mat, decenter);
+	sk_add_child(attach, sk);
+	parent = sk;
+
+	// Left Foreleg
+	sk = sk_alloc("ForeLegL");
+	sk->is_effector = 1;
+	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.2, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0, -0.21, 0);
+	mat4f_copy(sk->test_mat, decenter);
+	sk_add_child(parent, sk);
+	effectors[num_effectors].tracking_name = TRACKING_FOOTL;
+	effectors[num_effectors].effector = sk;
+	num_effectors++;
+	parent = sk;
+
+	// Right Leg
+	sk = sk_alloc("LegR");
+	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.2, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0, -0.21, 0);
+	mat4f_copy(sk->test_mat, decenter);
+	sk_add_child(attach, sk);
+	parent = sk;
+
+	// Right Foreleg
+	sk = sk_alloc("ForeLegR");
+	sk->is_effector = 1;
+	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.2, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0, -0.21, 0);
+	mat4f_copy(sk->test_mat, decenter);
+	sk_add_child(parent, sk);
+	effectors[num_effectors].tracking_name = TRACKING_FOOTR;
+	effectors[num_effectors].effector = sk;
+	num_effectors++;
+	parent = sk;
+
 	ik_init(ik);
 
 	ik_compute_positions(ik);
+
+	// Set targets to base positions.
+	for (int i = 0; i < num_effectors; i++) {
+		struct kuhl_skeleton *eff = effectors[i].effector;
+		ik_set_effector_target(ik, eff, eff->position);
+	}
 
 	printf("Original positions:\n");
 	sk = ik->sk;
@@ -501,8 +585,8 @@ void init_model()
 	}
 
 	// Position when the shoulder and elbow joints are at 45 degrees.
-	float target[] = { 0.34, 0.25, 0.00 };
-	ik_set_effector_target(ik, effectors[1].effector, target);
+	// float target[] = { 0.34, 0.25, 0.00 };
+	// ik_set_effector_target(ik, effectors[1].effector, target);
 }
 
 void draw_model(float view_mat[16])
@@ -652,8 +736,10 @@ void display()
 		// float ealoc[4];
 		// end_effector_loc(ealoc, arm2Mat);
 
-		int iterations = ik_jacobian_transpose(ik, 0.001, 250, 2);
-		printf("IK iterations: %d\n", iterations);
+		int iterations = ik_jacobian_transpose(ik, 0.005, 100, 2);
+		if (iterations) {
+			printf("IK iterations: %d\n", iterations);
+		}
 
 		draw_model(viewMat);
 

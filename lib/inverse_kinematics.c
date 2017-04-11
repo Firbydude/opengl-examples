@@ -274,6 +274,13 @@ void ik_compute_jacobian(struct kuhl_ik *ik, float delta)
 	#endif
 }
 
+void ik_get_effector_target(struct kuhl_ik *ik,
+							struct kuhl_skeleton *eff,
+							float *target)
+{
+	vec3f_copy(target, &ik->eff_targets[eff->eindex * 3]);
+}
+
 void ik_set_effector_target(struct kuhl_ik *ik,
 							struct kuhl_skeleton *eff,
 							float *target)
@@ -307,7 +314,9 @@ int ik_jacobian_transpose(struct kuhl_ik *ik,
 			if (dist > max_dist)
 				max_dist = dist;
 
+			#ifdef DEBUG
 			printf("Effector %s dist: %.3f\n", eff->name, dist);
+			#endif
 		}
 
 		// Cutoff using the maximum distance. Using the avg may also be ok.
@@ -343,18 +352,20 @@ int ik_jacobian_transpose(struct kuhl_ik *ik,
 				ik->num_joints * 3);
 		}
 
-		//#ifdef DEBUG
+		#ifdef DEBUG
 		printf("Expected change in effector:\n");
-		vecNf_print(delta_expected, ik->num_effectors * 3);
-		//#endif
+		char str[256];
+		vecNf_print_to_string(str, 256, delta_expected, ik->num_effectors * 3);
+		printf("%s\n", str);
+		#endif
 
 		// Calculate a reasonable alpha according to:
 		// http://www.math.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf
 		float alpha = vecNf_dot(delta_expected, delta_targets, ik->num_effectors * 3) /
 					  vecNf_dot(delta_expected, delta_expected, ik->num_effectors * 3);
-		//#ifdef DEBUG
+		#ifdef DEBUG
 		printf("Alpha: %f\n", alpha);
-		//#endif
+		#endif
 
 		// Apply our angle changes (multiplied by alpha) to the skeleton's joints.
 		for(int i = 0; i < ik->num_joints * 3; i++) {
@@ -374,13 +385,13 @@ int ik_jacobian_transpose(struct kuhl_ik *ik,
 			sk = sk_next(sk);
 		}
 
-		//#ifdef DEBUG
+		#ifdef DEBUG
 		printf("Change in angles: ");
 		for (int i = 0; i < ik->num_joints * 3; i++) {
 			printf("%.2f ", delta_angles[i]);
 		}
 		printf("\n");
-		//#endif
+		#endif
 
 		ik_compute_positions(ik);
 

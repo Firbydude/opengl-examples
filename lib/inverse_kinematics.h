@@ -26,7 +26,7 @@ struct kuhl_ik {
 	// A (K*3)X(N*3) matrix J
 	float *jacobian;	  // J
 	float *delta_angles;
-	float *delta_targets; // 
+	float *delta_targets; //
 };
 
 struct kuhl_skeleton {
@@ -77,6 +77,10 @@ void ik_init(struct kuhl_ik *ik);
 struct kuhl_ik *ik_alloc();
 
 void ik_set_effector_target(struct kuhl_ik *ik,
+							struct kuhl_skeleton *eff,
+							float *target);
+
+void ik_get_effector_target(struct kuhl_ik *ik,
 							struct kuhl_skeleton *eff,
 							float *target);
 
