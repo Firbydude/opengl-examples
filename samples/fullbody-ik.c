@@ -52,10 +52,10 @@ static float target[4] = { 0, 4, 0, 1};
 
 /**
  * Maximum number of jacobian inverse operations for each frame. Even using the
- * naive transpose method, if its over 250 then we're likely trying to reach an
- * impossible position.
+ * naive transpose method, if its over 100 then we're likely trying to reach an
+ * impossible position. Plus its slow.
  */
-#define MAX_INVERSE_ITERATIONS 250
+#define MAX_INVERSE_ITERATIONS 100
 
 static struct kuhl_ik *ik;
 
@@ -736,7 +736,7 @@ void display()
 		// float ealoc[4];
 		// end_effector_loc(ealoc, arm2Mat);
 
-		int iterations = ik_jacobian_transpose(ik, 0.005, 100, 2);
+		int iterations = ik_jacobian_transpose(ik, 0.005, MAX_INVERSE_ITERATIONS, 2);
 		if (iterations) {
 			printf("IK iterations: %d\n", iterations);
 		}
