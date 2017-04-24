@@ -62,7 +62,7 @@ kalman_state kStates[3];
 
 /***** Tracking *****/
 
-#define USE_VRPN 1
+#define USE_VRPN 0
 #define VRPN_HOST "localhost"
 #define TRACKING_HANDR "Hand5R"
 
