@@ -41,13 +41,6 @@ static float placeToPutModel[3] = { 0, 0, 0 };
 #define GLSL_VERT_FILE "assimp.vert"
 #define GLSL_FRAG_FILE "assimp.frag"
 
-static float angles[] = {
-	10, 15, 20,  // arm 1
-    0, 270, 30,  // arm 2
-};
-static int anglesCount = 6;
-static float target[4] = { 0, 4, 0, 1};
-
 #define THICKNESS 0.04
 
 /**
@@ -59,14 +52,18 @@ static float target[4] = { 0, 4, 0, 1};
 
 static struct kuhl_ik *ik;
 
+float model_mat[16];
+
 /***** Tracking *****/
 
-#define USE_VRPN 0
-#define VRPN_HOST "localhost"
+#define USE_VRPN 1
+#define VRPN_HOST "141.219.28.17"
 #define TRACKING_HANDR "Hand5R"
 #define TRACKING_HANDL "Hand5L"
 #define TRACKING_FOOTL "Foot5L"
 #define TRACKING_FOOTR "Foot5R"
+#define TRACKING_HEAD "Head"
+#define EFFECTOR_COUNT 4
 
 struct tracking_object {
 	char *tracking_name;
@@ -196,227 +193,6 @@ void get_model_matrix(float result[16])
 	mat4f_mult_mat4f_new(result, moveToLookPoint, fitMatrix);
 }
 
-
-/** Get arm matrices given a set of angles. The arm2 matrix already has
- * the arm1 matrix applied to it. */
-void get_arm_matrices(float arm1[16], float arm2[16], float angles[])
-{
-	list *stack = list_new(16, sizeof(float)*16, NULL);
-
-	float baseRotate[16];
-	mat4f_rotateEuler_new(baseRotate, angles[0], angles[1], angles[2], "XYZ");
-	mat4f_stack_mult(stack, baseRotate);
-	mat4f_stack_push(stack);
-
-	float scale[16];
-	mat4f_scale_new(scale, .5, 4, .5);
-	float decenter[16];
-	mat4f_translate_new(decenter, 0, .5, 0);
-
-	mat4f_stack_mult(stack, scale);
-	mat4f_stack_mult(stack, decenter);
-	mat4f_stack_peek(stack, arm1);
-	mat4f_stack_pop(stack);
-
-	float trans[16];
-	mat4f_translate_new(trans, 0, 4, 0);
-	mat4f_stack_mult(stack, trans);
-
-	mat4f_rotateEuler_new(baseRotate, angles[3], angles[4], angles[5], "XYZ");
-	mat4f_stack_mult(stack, baseRotate);
-	mat4f_stack_push(stack);
-
-	mat4f_stack_mult(stack, scale);
-	mat4f_stack_mult(stack, decenter);
-	mat4f_stack_peek(stack, arm2);
-	mat4f_stack_pop(stack);
-
-	list_free(stack);
-}
-
-/* Given a list of angles, calculate end effector location */
-void end_effector_loc(float loc[4], float angles[])
-{
-	float arm1mat[16], arm2mat[16];
-	get_arm_matrices(arm1mat, arm2mat, angles);
-	vec4f_set(loc, 0, .5, 0, 1);
-	mat4f_mult_vec4f_new(loc, arm2mat, loc);
-}
-
-/* Get a jacobian matrix. It is 3 elements tall and angleCount
- * elements wide. Each column represents how (x,y,z) of the end
- * effector will change given a small change in the angle. */
-float* get_jacobian(float delta)
-{
-	float *jacobian = malloc(sizeof(float)*3*anglesCount);
-
-	float origLoc[4];
-	end_effector_loc(origLoc, angles);
-
-	for(int i=0; i<anglesCount; i++)
-	{
-		// Prevent movement on angles with no allowed movement.
-		// This might not actually do what we want. Once we get test cases
-		// set up we'll verify. It seems to reduce iterations at a glance.
-		if (is_constrained(i) && cmin(i) == cmax(i))
-		{
-			for (int j = 0; j < 3; j++)
-				jacobian[i * 3 + j] = 0;
-		}
-		else
-		{
-			angles[i] += delta;
-			float newLoc[4];
-			end_effector_loc(newLoc, angles);
-			float deltaLoc[3];
-			vec3f_sub_new(deltaLoc, newLoc, origLoc);
-			for(int j=0; j<3; j++)
-				jacobian[i*3+j] = deltaLoc[j];
-			angles[i] -= delta;
-		}
-	}
-
-	printf("jacobian:\n");
-	for(int i=0; i<anglesCount; i++)
-	{
-		for(int j=0; j<3; j++)
-			printf("%8.4f ", jacobian[i*3+j]);
-		printf("\n");
-	}
-
-	return jacobian;
-}
-
-
-void effector_target(float target[4])
-{
-	int timesThroughLoop = 0;
-
-	while(1)
-	{
-		/* Get current location of end effector */
-		float currentLoc[4];
-		end_effector_loc(currentLoc, angles);
-		/* Get a vector pointing to target from current end effector location */
-		float deltaTarget[3];
-		vec3f_sub_new(deltaTarget, target, currentLoc);
-		float distance = vec3f_norm(deltaTarget);
-
-		timesThroughLoop++;
-		if(distance < .001 || timesThroughLoop >= MAX_INVERSE_ITERATIONS)
-		{
-			if (timesThroughLoop > 1)
-				printf("Times through loop: %d\n", timesThroughLoop);
-			break;
-		}
-
-		printf("pre: location, target, delta:\n");
-		vec3f_print(currentLoc);
-		vec3f_print(target);
-		vec3f_print(deltaTarget);
-		printf("distance: %f\n", distance);
-		printf("angles:\n");
-		vecNf_print(angles, anglesCount);
-
-		float *jacobian = get_jacobian(2);
-
-		/* Jacobian is in column-major order. Each column represents
-		 * the change in (x,y,z) given a change in a specific angle:
-
-		   angle0  angle1  ...
-		   -----------------
-		   x       x
-		   y       y
-		   z       z
-
-		   We can "transpose" the jacobian simply by changing the way
-		   we index into the array. To transpose it, we simply assume
-		   that the array is in row-major order---meaning that a row
-		   represents a change in (x,y,z) given a change in a specific
-		   angle.
-
-		   Transposed jacobian is (we can assume it is in row-major order to transpose)
-
-		   x y z
-		   x y z
-		   ...
-
-		*/
-
-
-		/* Multiply the change in the end effector by the transposed
-		 * Jacobian. The result will approximate the change in angle
-		 * of each of the joints that we want. */
-		float *changeInAngle = malloc(sizeof(float)*anglesCount);
-		for(int i=0; i<anglesCount; i++) // for each row in the transposed Jacobian
-		{
-			// take the dot product of the transposed jacobian row with the target position:
-			changeInAngle[i] = vec3f_dot(&(jacobian[i*3]), deltaTarget);
-		}
-
-		/* Calculate how these changes in angle would influence end
-		   effector based on the original Jacobian */
-		float expectedChangeInEffector[3] = { 0,0,0 };
-		for(int i=0; i<3; i++)
-		{
-			// Dot product of the first row of the jacobian with the changeInAngle
-			for(int j=0; j<anglesCount; j++)
-				expectedChangeInEffector[i] += changeInAngle[j] * jacobian[j*3+i];
-		}
-		printf("expected change in effector:\n");
-		vec3f_print(expectedChangeInEffector);
-
-		/* Calculate a reasonable alpha according to:
-		   http://www.math.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf
-		*/
-		float alpha = vec3f_dot(expectedChangeInEffector, deltaTarget) /
-		              vec3f_dot(expectedChangeInEffector, expectedChangeInEffector);
-		printf("alpha: %f\n", alpha);
-
-		/* Apply our angle changes (multiplied by alpha) to the robots angles */
-		printf("Change in angles: ");
-		for(int i=0; i<anglesCount; i++)
-		{
-			angles[i] += alpha*changeInAngle[i];
-
-			// Clamp constrained angles
-			if (is_constrained(i))
-			{
-				if (angles[i] < cmin(i))
-				{
-					printf("Clamping angle %d (%.2f) to min (%.2f)\n",
-						   i, angles[i], cmin(i));
-					angles[i] = cmin(i);
-				}
-				else if (angles[i] > cmax(i))
-				{
-					printf("Clamping angle %d (%.2f) to max (%.2f)\n",
-						   i, angles[i], cmax(i));
-					angles[i] = cmax(i);
-				}
-			}
-
-			angles[i] = fmod(angles[i], 360); // Keep angles within 0 to 360
-			printf("%f ", changeInAngle[i]);
-		}
-		printf("\n");
-
-		float newLoc[4];
-		end_effector_loc(newLoc, angles);
-		float actualChange[3];
-		vec3f_sub_new(actualChange, newLoc, currentLoc);
-		printf("Actual change in end effector\n");
-		vec3f_print(actualChange);
-
-		free(changeInAngle);
-		free(jacobian);
-
-		// Uncomment to see IK solution change
-		// break;
-	}
-
-}
-
 void init_model()
 {
 	struct kuhl_skeleton *sk;
@@ -430,9 +206,8 @@ void init_model()
 	// Head (skeleton root)
 	sk = sk_alloc("Head");
 	sk->is_static = 1;
-	mat4f_scale_new(sk->scale_mat, 0.1, 0.1, 0.1);
-	mat4f_translate_new(sk->trans_mat, 0, -0.11, 0);
-	//mat4f_identity(sk->transform_matrix);
+	mat4f_scale_new(sk->scale_mat, 0.15, 0.15, 0.15);
+	mat4f_translate_new(sk->trans_mat, 0, -0.16, 0);
 	mat4f_translate_new(sk->test_mat, 0, -0.5, 0);
 	ik->sk = sk;
 
@@ -449,18 +224,16 @@ void init_model()
 	// Left shoulder
 	sk = sk_alloc("ShoulderL");
 	sk->is_static = 1;
-	mat4f_scale_new(sk->scale_mat, 0.2, THICKNESS, THICKNESS);
-	mat4f_translate_new(sk->trans_mat, -0.19, 0, 0);
-	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	mat4f_scale_new(sk->scale_mat, 0.15, THICKNESS, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, -0.14, 0, 0);
 	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(attach, sk);
 	parent = sk;
 
 	// Left Arm
 	sk = sk_alloc("ArmL");
-	mat4f_scale_new(sk->scale_mat, 0.2, THICKNESS, THICKNESS);
-	mat4f_translate_new(sk->trans_mat, -0.21, 0, 0);
-	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	mat4f_scale_new(sk->scale_mat, 0.35, THICKNESS, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, -0.36, 0, 0);
 	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(parent, sk);
 	parent = sk;
@@ -468,9 +241,8 @@ void init_model()
 	// Left Forearm & Hand (effector)
 	sk = sk_alloc("ForeArmL");
 	sk->is_effector = 1;
-	mat4f_scale_new(sk->scale_mat, 0.2, THICKNESS, THICKNESS);
-	mat4f_translate_new(sk->trans_mat, -0.21, 0, 0);
-	//mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	mat4f_scale_new(sk->scale_mat, 0.25, THICKNESS, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, -0.26, 0, 0);
 	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(parent, sk);
 	effectors[num_effectors].tracking_name = TRACKING_HANDL;
@@ -483,19 +255,16 @@ void init_model()
 	// Right shoulder
 	sk = sk_alloc("ShoulderR");
 	sk->is_static = 1;
-	mat4f_scale_new(sk->scale_mat, 0.2, THICKNESS, THICKNESS);
-	mat4f_translate_new(sk->trans_mat, 0.19, 0, 0);
-	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	mat4f_scale_new(sk->scale_mat, 0.15, THICKNESS, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0.14, 0, 0);
 	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(attach, sk);
 	parent = sk;
 
 	// Right Arm
 	sk = sk_alloc("ArmR");
-	// sk->angles[2] = 45;
-	mat4f_scale_new(sk->scale_mat, 0.2, THICKNESS, THICKNESS);
-	mat4f_translate_new(sk->trans_mat, 0.21, 0, 0);
-	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	mat4f_scale_new(sk->scale_mat, 0.35, THICKNESS, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0.36, 0, 0);
 	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(parent, sk);
 	parent = sk;
@@ -503,10 +272,8 @@ void init_model()
 	// Right Forearm & Hand (effector)
 	sk = sk_alloc("ForeArmR");
 	sk->is_effector = 1;
-	// sk->angles[2] = 45;
-	mat4f_scale_new(sk->scale_mat, 0.2, THICKNESS, THICKNESS);
-	mat4f_translate_new(sk->trans_mat, 0.21, 0, 0);
-	// mat4f_mult_mat4f_new(sk->transform_matrix, trans_mat, scale_mat);
+	mat4f_scale_new(sk->scale_mat, 0.25, THICKNESS, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0.26, 0, 0);
 	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(parent, sk);
 	effectors[num_effectors].tracking_name = TRACKING_HANDR;
@@ -519,8 +286,8 @@ void init_model()
 	// Torso
 	sk = sk_alloc("Torso");
 	sk->is_static = 1;
-	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.4, THICKNESS);
-	mat4f_translate_new(sk->trans_mat, 0, -0.41, 0);
+	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.55, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0, -0.56, 0);
 	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(attach, sk);
 	attach = sk;
@@ -528,8 +295,8 @@ void init_model()
 
 	// Left Leg
 	sk = sk_alloc("LegL");
-	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.2, THICKNESS);
-	mat4f_translate_new(sk->trans_mat, 0, -0.21, 0);
+	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.4, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0, -0.41, 0);
 	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(attach, sk);
 	parent = sk;
@@ -537,8 +304,8 @@ void init_model()
 	// Left Foreleg
 	sk = sk_alloc("ForeLegL");
 	sk->is_effector = 1;
-	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.2, THICKNESS);
-	mat4f_translate_new(sk->trans_mat, 0, -0.21, 0);
+	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.35, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0, -0.36, 0);
 	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(parent, sk);
 	effectors[num_effectors].tracking_name = TRACKING_FOOTL;
@@ -548,8 +315,8 @@ void init_model()
 
 	// Right Leg
 	sk = sk_alloc("LegR");
-	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.2, THICKNESS);
-	mat4f_translate_new(sk->trans_mat, 0, -0.21, 0);
+	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.4, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0, -0.41, 0);
 	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(attach, sk);
 	parent = sk;
@@ -557,8 +324,8 @@ void init_model()
 	// Right Foreleg
 	sk = sk_alloc("ForeLegR");
 	sk->is_effector = 1;
-	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.2, THICKNESS);
-	mat4f_translate_new(sk->trans_mat, 0, -0.21, 0);
+	mat4f_scale_new(sk->scale_mat, THICKNESS, 0.35, THICKNESS);
+	mat4f_translate_new(sk->trans_mat, 0, -0.36, 0);
 	mat4f_copy(sk->test_mat, decenter);
 	sk_add_child(parent, sk);
 	effectors[num_effectors].tracking_name = TRACKING_FOOTR;
@@ -583,16 +350,15 @@ void init_model()
 			sk->position[0], sk->position[1], sk->position[2]);
 		sk = sk_next(sk);
 	}
-
-	// Position when the shoulder and elbow joints are at 45 degrees.
-	// float target[] = { 0.34, 0.25, 0.00 };
-	// ik_set_effector_target(ik, effectors[1].effector, target);
 }
 
 void draw_model(float view_mat[16])
 {
 	float modelview[16];
 	struct kuhl_skeleton *sk = ik->sk;
+
+	// Offset the model using the head position.
+	mat4f_mult_mat4f_new(view_mat, view_mat, model_mat);
 
 	while (sk) {
 		if (sk->parent) {
@@ -623,8 +389,6 @@ void draw_model(float view_mat[16])
 		mat4f_mult_mat4f_new(modelview, modelview, sk->scale_mat);
 		mat4f_mult_mat4f_new(modelview, modelview, sk->test_mat);
 
-		// mat4f_mult_mat4f_new(modelview, modelview, sk->composite_matrix);
-		// mat4f_mult_mat4f_new(modelview, modelview, sk->scale_mat);
 		glUniformMatrix4fv(kuhl_get_uniform("ModelView"),
 		                   1, // number of 4x4 float matrices
 		                   0, // transpose
@@ -696,45 +460,33 @@ void display()
 		                   0, // transpose
 		                   perspective); // value
 
-//		float modelMat[16];
-//		get_model_matrix(modelMat);
-//		mat4f_stack_mult(stack, modelMat);
-
 		// Get the effector location from vrpn
 		if (USE_VRPN)
 		{
+			float origin[4];
+			float target[4];
 			float orient[16];
-			vrpn_get(TRACKING_HANDR, VRPN_HOST, target, orient);
+
+			vrpn_get(TRACKING_HEAD, VRPN_HOST, origin, orient);
 			printf("Tracking position for %s: (%.2f, %.2f, %.2f)\n",
-				   TRACKING_HANDR, target[0], target[1], target[2]);
+				   TRACKING_HEAD, origin[0], origin[1], origin[2]);
+
+			// The head position controls where the entire model is drawn.
+			mat4f_translate_new(model_mat, origin[0], origin[1], origin[2]);
+
+			for (int i = 0; i < EFFECTOR_COUNT; i++) {
+				struct tracking_object *eff = &effectors[i];
+
+				vrpn_get(eff->tracking_name, VRPN_HOST, target, orient);
+				vec3f_sub_new(target, target, origin);
+				printf("Tracking position for %s: (%.2f, %.2f, %.2f)\n",
+					   eff->tracking_name, target[0], target[1], target[2]);
+
+				ik_set_effector_target(ik, eff->effector, target);
+			}
+		} else {
+			mat4f_identity(model_mat);
 		}
-
-		// effector_target(target);
-
-		// float arm1Mat[16],arm2Mat[16];
-		// get_arm_matrices(arm1Mat, arm2Mat, angles);
-
-		// float modelview[16];
-		// mat4f_mult_mat4f_new(modelview, viewMat, arm1Mat);
-		// glUniformMatrix4fv(kuhl_get_uniform("ModelView"),
-		//                    1, // number of 4x4 float matrices
-		//                    0, // transpose
-		//                    modelview); // value
-		// kuhl_errorcheck();
-		// kuhl_geometry_draw(modelgeom);
-		// kuhl_errorcheck();
-
-		// mat4f_mult_mat4f_new(modelview, viewMat, arm2Mat);
-		// glUniformMatrix4fv(kuhl_get_uniform("ModelView"),
-		//                    1, // number of 4x4 float matrices
-		//                    0, // transpose
-		//                    modelview); // value
-		// kuhl_errorcheck();
-		// kuhl_geometry_draw(modelgeom);
-		// kuhl_errorcheck();
-
-		// float ealoc[4];
-		// end_effector_loc(ealoc, arm2Mat);
 
 		int iterations = ik_jacobian_transpose(ik, 0.005, MAX_INVERSE_ITERATIONS, 2);
 		if (iterations) {

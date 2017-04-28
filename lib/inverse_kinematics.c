@@ -157,6 +157,12 @@ static void _ik_transpose(float *result, float *matrix, int cols, int rows)
 	}
 }
 
+// static void ik__compute_eff_position(struct kuhl_skeleton *sk, 
+// 	struct kuhl_skeleton *eff)
+// {
+
+// }
+
 static void _ik_compute_position(struct kuhl_skeleton *sk)
 {
 	mat4f_rotateEuler_new(sk->joint_matrix, sk->angles[0], sk->angles[1],
@@ -169,25 +175,11 @@ static void _ik_compute_position(struct kuhl_skeleton *sk)
 		struct kuhl_skeleton *p = sk->parent;
 		mat4f_mult_mat4f_new(sk->transform_matrix, p->transform_matrix, sk->joint_matrix);
 		mat4f_mult_mat4f_new(sk->transform_matrix, sk->transform_matrix, sk->trans_mat);
-		//mat4f_mult_mat4f_new(sk->composite_matrix, sk->transform_matrix, sk->scale_mat);
-
-		// mat4f_mult_mat4f_new(sk->composite_matrix,
-		// 					 sk->joint_matrix,
-		// 					 sk->parent->joint_matrix);
-
-		//mat4f_mult_vec4f(sk->position, p->transform_matrix);
 	} else {
-		//mat4f_copy(sk->transform_matrix, sk->trans_mat);
-		//mat4f_identity(sk->transform_matrix);
-		//memcpy(sk->composite_matrix, sk->joint_matrix, sizeof(float) * 16);
 		mat4f_mult_mat4f_new(sk->transform_matrix, sk->joint_matrix, sk->trans_mat);
-		//mat4f_mult_mat4f_new(sk->composite_matrix, sk->transform_matrix, sk->scale_mat);
 	}
 
 	mat4f_mult_vec4f(sk->position, sk->transform_matrix);
-
-	// mat4f_mult_mat4f_new(position_matrix, sk->composite_matrix, sk->transform_matrix);
-	// mat4f_mult_vec4f(sk->position, position_matrix);
 
 	for (int i = 0; i < sk->num_children; i++) {
 		_ik_compute_position(sk->children[i]);
